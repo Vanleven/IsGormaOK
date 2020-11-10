@@ -1,0 +1,181 @@
+//I take little credit for this, its a compilation of several codes that a found through google, this code is largely so I can ensure the health of a lizard
+//http://embedded-lab.com/blog/tutorial-6-esp8266-bme280-make-localremote-weather-station/
+//
+#include <Wire.h>
+#include <ESP8266WiFi.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_BME280.h>
+#include "SSD1306.h"
+#include <DallasTemperature.h>
+#include <OneWire.h>
+
+
+Adafruit_BME280 bme; // I2C
+SSD1306  display(0x3c, D2, D1);   //WHAT GPIO PINS ARE YOU USING FOR YOUR SDA/SCL(respectively)
+// Replace with your network details
+const char* ssid = "SETUP-7980";           //Wifi network you want to connect to.
+const char* password = "diner0508center";  // the password to that network.
+float h, t, p, pin;
+char temperatureFString[6];
+char humidityString[6];
+char pressureString[7];
+char pressureInchString[6];
+char tempaString[6]; 
+char tempbString[6]; 
+char tempcString[6]; 
+
+int count=0;
+
+// for ds18b20 sensors
+#define ONE_WIRE_BUS D3  // what GPIO pin do you want for yous ds18b20 sensors.
+
+// Setup a oneWire instance to communicate with any OneWire devices
+OneWire oneWire(ONE_WIRE_BUS);
+
+// Pass our oneWire reference to Dallas Temperature.
+DallasTemperature sensors(&oneWire);
+
+float tempSensor1, tempSensor2, tempSensor3;  //for ds18b20
+
+uint8_t sensor1[8] = { 0x28, 0xA0, 0x24, 0xED, 0x39, 0x19, 0x01, 0x21  };  // find these with another script serial numbers for ds18b20
+uint8_t sensor2[8] = { 0x28, 0xED, 0x60, 0xE0, 0x39, 0x19, 0x01, 0x75  };
+uint8_t sensor3[8] = { 0x28, 0xED, 0xD3, 0xEC, 0x39, 0x19, 0x01, 0x66  };
+
+// Web Server on port 80
+WiFiServer server(80);
+
+// only runs once on boot
+void setup() {
+  // Initializing serial port for debugging purposes
+  Serial.begin(115200);                                             //ctrl+shft+M set to this number to see serial
+  delay(10);
+  Wire.begin(D2, D1);
+  Wire.setClock(100000);
+  // Connecting to WiFi network
+  Serial.println();
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
+  
+  // from ds18b20 script
+  sensors.begin(); 
+  
+  WiFi.begin(ssid, password);
+  
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("");
+  Serial.println("WiFi connected");
+  
+  // Starting the web server
+  server.begin();
+  Serial.println("Web server running. Waiting for the ESP IP...");
+  delay(10000);
+  
+  // Printing the ESP IP address
+  Serial.println(WiFi.localIP());
+  Serial.println(F("BME280 test"));
+
+  if (!bme.begin(0x76)) {
+    Serial.println("Could not find a valid BME280 sensor, check wiring, because you're stupid, I bet you feel stupid..Stupid!");
+    while (1);
+  }
+ // Initialising the UI will init the display too.
+  display.init();
+
+  display.flipScreenVertically();
+  display.setFont(ArialMT_Plain_10);
+}
+
+void getWeather() {
+  sensors.requestTemperatures();
+    tempSensor1 = (sensors.getTempC(sensor1))*1.8+32; // Gets the values of the temperature
+    tempSensor2 = (sensors.getTempC(sensor2))*1.8+32; // Gets the values of the temperature
+    tempSensor3 = (sensors.getTempC(sensor3))*1.8+32; // Gets the values of the temperature
+    h = bme.readHumidity();
+    t = bme.readTemperature();
+    t = t*1.8+32;
+    p = bme.readPressure()/100.0F;
+    pin = 0.02953*p;
+   // YOU ARE RIGHT HERE you have to write dtostrf things for tempsensors
+    dtostrf(t, 5, 1, temperatureFString);
+    dtostrf(h, 5, 1, humidityString);
+    dtostrf(p, 6, 1, pressureString);
+    dtostrf(pin, 5, 2, pressureInchString);
+    dtostrf(tempSensor1, 5, 1, tempaString); // what do 5 and 1 mean, you may know this, but I do not. number of float variables? i haven't looked into this
+    dtostrf(tempSensor2, 5, 1, tempbString);
+    dtostrf(tempSensor3, 5, 1, tempcString);
+    delay(100);
+
+}
+
+
+// runs over and over again
+void loop() {
+  // Listenning for new clients
+  WiFiClient client = server.available();
+  
+  if (client) {
+    Serial.println("New client");
+    // bolean to locate when the http request ends
+    boolean blank_line = true;
+    while (client.connected()) {
+      if (client.available()) {
+        char c = client.read();
+        
+        if (c == '\n' && blank_line) {
+            getWeather();
+            client.println("HTTP/1.1 200 OK");
+            client.println("Content-Type: text/html");
+            client.println("Connection: close");
+            client.println();
+            // your actual web page that displays temperature
+            client.println("<!DOCTYPE HTML>");
+            client.println("<html>");
+            client.println("<head><META HTTP-EQUIV=\"refresh\" CONTENT=\"15\"></head><body><h1>Gormas Optimal Reptilian Management Apparatus</h1><h3>Temperature at unit = ");
+            client.println(temperatureFString);
+            client.println("&deg;F</h3><h3>Humidity at unit = ");
+            client.println(humidityString);
+            client.println("%</h3><h3>Gormas Hot Spot = ");
+            client.println(tempaString);
+            client.println("&deg;F</h3><h3>Gormas cool Spot = ");
+            client.println(tempbString);
+            client.println("&deg;F</h3><h3>Outdoor Temp = ");
+            client.println(tempcString);
+            client.println("&deg;F</h3><h3>Pressure = ");
+            client.println(pressureString);
+            client.println("hPa (");
+            client.println(pressureInchString);
+            client.println("Inch)</h3></body></html>");  
+            break;
+        }
+        if (c == '\n') {
+          // when starts reading a new line
+          blank_line = true;
+        }
+        else if (c != '\r') {
+          // when finds a character on the current line
+          blank_line = false;
+        }
+      }
+    }  
+    // closing the client connection
+    delay(1);
+    client.stop();
+    Serial.println("Client disconnected.");
+  }
+  if(count == 0){
+    getWeather();
+    display.clear();
+    display.drawString(6, 1, "Unit:"+String(t)+"°F"+","+String(h)+"%");
+    display.drawString(6, 13, "Gormas High="+String(tempSensor1)+"°F");
+    display.drawString(6, 25, "Gormas Low="+String(tempSensor2)+"°F");
+    display.drawString(6, 37, "Outdoor Temp="+String(tempSensor3)+"°F");
+    display.drawString(6, 49, "Pressure="+String(p)+"hPa");
+    display.display();
+  }
+  count = count+1;
+  if (count==20) count=0;  
+  delay(500);
+} 
